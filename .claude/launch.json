@@ -1,0 +1,30 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend (Vite dev server)",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["dev"],
+      "cwd": "frontend",
+      "port": 3301
+    },
+    {
+      "name": "Backend – Community",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["go-run-community"],
+      "port": 8080
+    },
+    {
+      "name": "Backend – Enterprise",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["go-run-enterprise"],
+      "port": 8080
+    },
+    {
+      "name": "DevEnv (ClickHouse + OTel Collector)",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["devenv-up"],
+      "port": 9000
+    }
+  ]
+}
