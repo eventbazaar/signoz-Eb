@@ -203,20 +203,23 @@ section "7a · Copy certs into Docker volume"
 info "Creating nginx-certs volume and loading certificates…"
 docker volume create signoz-eb-nginx-certs 2>/dev/null || true
 
-# Start a temporary Alpine container to copy certs into the volume
-docker run --rm \
-    -v signoz-eb-nginx-certs:/certs \
-    -v "${CERT_DIR_UI}:/src-ui:ro" \
-    -v "${CERT_DIR_OTEL}:/src-otel:ro" \
-    alpine sh -c "
-        mkdir -p /certs/${DOMAIN_UI} /certs/${DOMAIN_OTEL}
-        cp /src-ui/fullchain.pem  /certs/${DOMAIN_UI}/fullchain.pem
-        cp /src-ui/privkey.pem    /certs/${DOMAIN_UI}/privkey.pem
-        cp /src-otel/fullchain.pem /certs/${DOMAIN_OTEL}/fullchain.pem
-        cp /src-otel/privkey.pem   /certs/${DOMAIN_OTEL}/privkey.pem
-        chmod 600 /certs/${DOMAIN_UI}/privkey.pem /certs/${DOMAIN_OTEL}/privkey.pem
-    "
-success "Certificates loaded into Docker volume"
+# Let's Encrypt stores real files in /etc/letsencrypt/archive/ and only
+# symlinks in /live/. Docker volume mounts do not follow symlinks, so we
+# copy directly on the host using cp -L (dereference) into the volume
+# mountpoint — no intermediate container needed.
+VOLUME_PATH=$(docker volume inspect signoz-eb-nginx-certs --format '{{ .Mountpoint }}')
+mkdir -p "${VOLUME_PATH}/${DOMAIN_UI}" "${VOLUME_PATH}/${DOMAIN_OTEL}"
+
+cp -L "${CERT_DIR_UI}/fullchain.pem"   "${VOLUME_PATH}/${DOMAIN_UI}/fullchain.pem"
+cp -L "${CERT_DIR_UI}/privkey.pem"     "${VOLUME_PATH}/${DOMAIN_UI}/privkey.pem"
+cp -L "${CERT_DIR_OTEL}/fullchain.pem" "${VOLUME_PATH}/${DOMAIN_OTEL}/fullchain.pem"
+cp -L "${CERT_DIR_OTEL}/privkey.pem"   "${VOLUME_PATH}/${DOMAIN_OTEL}/privkey.pem"
+
+chmod 600 \
+    "${VOLUME_PATH}/${DOMAIN_UI}/privkey.pem" \
+    "${VOLUME_PATH}/${DOMAIN_OTEL}/privkey.pem"
+
+success "Certificates loaded into Docker volume (${VOLUME_PATH})"
 
 # =============================================================================
 section "8 · Auto-renewal cron"
@@ -226,20 +229,20 @@ RENEW_SCRIPT="/etc/cron.weekly/signoz-cert-renew"
 cat > "$RENEW_SCRIPT" <<CRONEOF
 #!/usr/bin/env bash
 # Weekly Let's Encrypt renewal + nginx reload for SigNoz EventBazaar
+# Uses cp -L to dereference symlinks from /etc/letsencrypt/live/ before
+# copying into the Docker volume mountpoint directly on the host.
 set -euo pipefail
-certbot renew --quiet --deploy-hook "
-    docker run --rm \\
-        -v signoz-eb-nginx-certs:/certs \\
-        -v /etc/letsencrypt/live/${DOMAIN_UI}:/src-ui:ro \\
-        -v /etc/letsencrypt/live/${DOMAIN_OTEL}:/src-otel:ro \\
-        alpine sh -c '
-            cp /src-ui/fullchain.pem  /certs/${DOMAIN_UI}/fullchain.pem
-            cp /src-ui/privkey.pem    /certs/${DOMAIN_UI}/privkey.pem
-            cp /src-otel/fullchain.pem /certs/${DOMAIN_OTEL}/fullchain.pem
-            cp /src-otel/privkey.pem   /certs/${DOMAIN_OTEL}/privkey.pem
-        '
-    docker exec signoz-eb-nginx nginx -s reload
-"
+
+certbot renew --quiet
+
+VOLUME_PATH=\$(docker volume inspect signoz-eb-nginx-certs --format '{{ .Mountpoint }}')
+cp -L /etc/letsencrypt/live/${DOMAIN_UI}/fullchain.pem   "\${VOLUME_PATH}/${DOMAIN_UI}/fullchain.pem"
+cp -L /etc/letsencrypt/live/${DOMAIN_UI}/privkey.pem     "\${VOLUME_PATH}/${DOMAIN_UI}/privkey.pem"
+cp -L /etc/letsencrypt/live/${DOMAIN_OTEL}/fullchain.pem "\${VOLUME_PATH}/${DOMAIN_OTEL}/fullchain.pem"
+cp -L /etc/letsencrypt/live/${DOMAIN_OTEL}/privkey.pem   "\${VOLUME_PATH}/${DOMAIN_OTEL}/privkey.pem"
+chmod 600 "\${VOLUME_PATH}/${DOMAIN_UI}/privkey.pem" "\${VOLUME_PATH}/${DOMAIN_OTEL}/privkey.pem"
+
+docker exec signoz-eb-nginx nginx -s reload
 CRONEOF
 chmod +x "$RENEW_SCRIPT"
 success "Weekly renewal cron installed at $RENEW_SCRIPT"
