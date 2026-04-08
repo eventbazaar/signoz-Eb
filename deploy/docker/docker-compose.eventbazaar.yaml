@@ -149,6 +149,12 @@ services:
         condition: service_healthy
       signoz-telemetrystore-migrator:
         condition: service_completed_successfully
+    # The otel-collector-opamp-config.yaml hardcodes ws://signoz:4320/v1/opamp.
+    # Adding a network alias so Docker DNS resolves "signoz" to this container.
+    networks:
+      signoz-eb-net:
+        aliases:
+          - signoz
     # Port 8080 is NOT exposed externally — nginx proxies all traffic
     volumes:
       - sqlite:/var/lib/signoz/
