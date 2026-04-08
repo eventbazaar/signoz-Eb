@@ -1,0 +1,151 @@
+# SigNoz configuration for EventBazaar production deployment.
+# Overrides defaults from conf/example.yaml for this environment.
+
+##################### Global #####################
+global:
+  external_url: https://otel-ui.eventbazaar.com
+  ingestion_url: https://otel-push.eventbazaar.com
+
+##################### Web #####################
+web:
+  enabled: true
+  prefix: /
+  directory: /etc/signoz/web
+
+##################### Cache #####################
+cache:
+  provider: memory
+  memory:
+    num_counters: 100000
+    max_cost: 67108864  # 64 MB
+
+##################### SQLStore #####################
+sqlstore:
+  provider: sqlite
+  max_open_conns: 100
+  sqlite:
+    path: /var/lib/signoz/signoz.db
+    mode: wal
+    busy_timeout: 10s
+    transaction_mode: deferred
+
+##################### APIServer #####################
+apiserver:
+  timeout:
+    default: 60s
+    max: 600s
+    excluded_routes:
+      - /api/v1/logs/tail
+      - /api/v3/logs/livetail
+  logging:
+    excluded_routes:
+      - /api/v1/health
+      - /api/v1/version
+      - /
+
+##################### Querier #####################
+querier:
+  cache_ttl: 168h
+  flux_interval: 5m
+  max_concurrent_queries: 4
+
+##################### TelemetryStore #####################
+telemetrystore:
+  max_idle_conns: 50
+  max_open_conns: 100
+  dial_timeout: 5s
+  provider: clickhouse
+  clickhouse:
+    dsn: tcp://clickhouse:9000
+    cluster: cluster
+    settings:
+      max_execution_time: 0
+      max_execution_time_leaf: 0
+      timeout_before_checking_execution_speed: 0
+      max_bytes_to_read: 0
+      max_result_rows: 0
+
+##################### Alertmanager #####################
+alertmanager:
+  provider: signoz
+  signoz:
+    poll_interval: 1m
+    external_url: https://otel-ui.eventbazaar.com
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by:
+        - alertname
+      group_interval: 1m
+      group_wait: 1m
+      repeat_interval: 1h
+    alerts:
+      gc_interval: 30m
+    silences:
+      max: 0
+      max_size_bytes: 0
+      maintenance_interval: 15m
+      retention: 120h
+    nflog:
+      maintenance_interval: 15m
+      retention: 120h
+
+##################### Analytics #####################
+# Disabled for self-hosted production deployment
+analytics:
+  enabled: false
+
+##################### StatsReporter #####################
+statsreporter:
+  enabled: false
+
+##################### Tokenizer #####################
+tokenizer:
+  provider: jwt
+  lifetime:
+    idle: 168h
+    max: 720h
+  rotation:
+    interval: 30m
+    duration: 60s
+  jwt:
+    # Secret is injected via SIGNOZ_TOKENIZER_JWT_SECRET env var at runtime
+    secret: ""
+
+##################### User #####################
+user:
+  password:
+    reset:
+      allow_self: true
+      max_token_lifetime: 6h
+    invite:
+      max_token_lifetime: 48h
+  root:
+    enabled: false
+    email: ""
+    password: ""
+    org:
+      name: default
+      id: 00000000-0000-0000-0000-000000000000
+
+##################### Instrumentation #####################
+instrumentation:
+  logs:
+    level: info
+  traces:
+    enabled: false
+  metrics:
+    enabled: true
+    readers:
+      pull:
+        exporter:
+          prometheus:
+            host: "0.0.0.0"
+            port: 9090
+
+##################### Flagger #####################
+flagger:
+  config:
+    boolean:
+      use_span_metrics: true
+      kafka_span_eval: false
