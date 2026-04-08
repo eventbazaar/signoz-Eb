@@ -181,6 +181,14 @@ services:
     container_name: signoz-eb-otel-collector
     mem_limit: 1g
     cpus: "0.5"
+    # Must wait for signoz to be healthy — otel-collector connects to signoz
+    # on port 4320 (OpAMP) immediately at startup. If signoz is not yet ready,
+    # OpAMP errors cause the health check extension to report unhealthy.
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      signoz:
+        condition: service_healthy
     entrypoint:
       - /bin/sh
     command:
@@ -199,16 +207,6 @@ services:
       - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION=true
       - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
     # Ports 4317/4318 are NOT exposed externally — nginx proxies all traffic
-    healthcheck:
-      test:
-        - CMD
-        - wget
-        - --spider
-        - -q
-        - localhost:13133/
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   nginx:
     !!merge <<: *common
@@ -220,7 +218,7 @@ services:
       signoz:
         condition: service_healthy
       otel-collector:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
