@@ -35,10 +35,12 @@ FROM node:22-alpine AS js-builder
 
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/yarn.lock ./
-RUN yarn install --frozen-lockfile
+RUN yarn install --frozen-lockfile --ignore-scripts
 
 COPY frontend/ .
-RUN yarn build
+RUN CI=1 node ./i18-generate-hash.cjs && \
+    node scripts/update-registry.cjs && \
+    yarn build
 
 # ── Stage 3: Final image ────────────────────────────────────
 FROM alpine:3.20.3
