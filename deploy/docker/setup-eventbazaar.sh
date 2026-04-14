@@ -284,7 +284,7 @@ section "9a · Pull remaining Docker images"
 # =============================================================================
 
 info "Pulling third-party images (ClickHouse, OTel Collector, etc.)…"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull --ignore-buildable
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull --ignore-pull-failures || true
 success "Images pulled"
 
 # =============================================================================

@@ -167,6 +167,13 @@ services:
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://clickhouse:9000
       - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
       - SIGNOZ_TOKENIZER_JWT_SECRET=${SIGNOZ_JWT_SECRET}
+      # Team invite and password-reset emails use the `emailing` SMTP config (separate from Alertmanager email channels).
+      - SIGNOZ_EMAILING_ENABLED=true
+      - SIGNOZ_EMAILING_ADDRESS=smtp.gmail.com:587
+      - SIGNOZ_EMAILING_FROM=dev@eventbazaar.com
+      - SIGNOZ_EMAILING_AUTH_USERNAME=dev@eventbazaar.com
+      # Reuse the same SMTP app password source as Alertmanager.
+      - SIGNOZ_EMAILING_AUTH_PASSWORD=${SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD}
     command:
       - --config=/etc/signoz/signoz.yaml
     healthcheck:

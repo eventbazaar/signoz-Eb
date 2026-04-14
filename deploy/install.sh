@@ -547,7 +547,7 @@ if [[ "$EVENTBAZAAR_MODE" == "true" ]]; then
     fi
 
     echo -e "🟡 Pulling third-party images...\n"
-    $sudo_cmd $docker_compose_cmd -f "$EB_COMPOSE_FILE" --env-file "$EB_ENV_FILE" pull --ignore-buildable || true
+    $sudo_cmd $docker_compose_cmd -f "$EB_COMPOSE_FILE" --env-file "$EB_ENV_FILE" pull --ignore-pull-failures || true
 
     echo ""
     echo "🟡 Starting the SigNoz EventBazaar stack..."
