@@ -3,6 +3,7 @@ package alertmanagernotify
 import (
 	"log/slog"
 
+	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/googlechat"
 	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/msteamsv2"
 	"github.com/SigNoz/signoz/pkg/types/alertmanagertypes"
 	"github.com/prometheus/alertmanager/config/receiver"
@@ -15,6 +16,13 @@ func NewReceiverIntegrations(nc alertmanagertypes.Receiver, tmpl *template.Templ
 	upstreamIntegrations, err := receiver.BuildReceiverIntegrations(nc, tmpl, logger)
 	if err != nil {
 		return nil, err
+	}
+
+	googleChatIndexes := make(map[int]bool)
+	for i, c := range nc.WebhookConfigs {
+		if googlechat.IsGoogleChatURL(string(c.URL)) {
+			googleChatIndexes[i] = true
+		}
 	}
 
 	var (
@@ -31,16 +39,27 @@ func NewReceiverIntegrations(nc alertmanagertypes.Receiver, tmpl *template.Templ
 	)
 
 	for _, integration := range upstreamIntegrations {
-		// skip upstream msteamsv2 integration
-		if integration.Name() != "msteamsv2" {
-			integrations = append(integrations, integration)
+		if integration.Name() == "msteamsv2" {
+			continue
 		}
+		if integration.Name() == "webhook" && googleChatIndexes[integration.Index()] {
+			continue
+		}
+		integrations = append(integrations, integration)
 	}
 
 	for i, c := range nc.MSTeamsV2Configs {
 		add("msteamsv2", i, c, func(l *slog.Logger) (notify.Notifier, error) {
 			return msteamsv2.New(c, tmpl, `{{ template "msteamsv2.default.titleLink" . }}`, l)
 		})
+	}
+
+	for i, c := range nc.WebhookConfigs {
+		if googleChatIndexes[i] {
+			add("googlechat", i, c, func(l *slog.Logger) (notify.Notifier, error) {
+				return googlechat.New(c, tmpl, l)
+			})
+		}
 	}
 
 	if errs.Len() > 0 {
