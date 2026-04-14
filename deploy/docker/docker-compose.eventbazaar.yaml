@@ -157,10 +157,14 @@ services:
     volumes:
       - sqlite:/var/lib/signoz/
       - ./signoz-config.yaml:/etc/signoz/signoz.yaml
+    # Loads keys into the container without Compose ${...} interpolation (so you do not need --env-file for SMTP).
+    # Set SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD in .env.eventbazaar or .env.secrets (see comments there).
+    env_file:
+      - .env.eventbazaar
+      - path: .env.secrets
+        required: false
     environment:
       - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
-      # Gmail app password (or any relay secret): set GMAIL_SMTP_APP_PASSWORD in the shell or a gitignored --env-file; never commit it.
-      - SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD=${GMAIL_SMTP_APP_PASSWORD:-}
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://clickhouse:9000
       - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
       - SIGNOZ_TOKENIZER_JWT_SECRET=${SIGNOZ_JWT_SECRET}
