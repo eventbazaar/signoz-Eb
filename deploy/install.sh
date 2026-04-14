@@ -12,7 +12,8 @@ EVENTBAZAAR_MODE="${EVENTBAZAAR:-false}"
 EB_COMPOSE_FILE="docker-compose.eventbazaar.yaml"
 EB_ENV_FILE=".env.eventbazaar.local"
 EB_CUSTOM_IMAGE="signoz-eb-custom:latest"
-EB_DOCKERFILE="../../cmd/enterprise/Dockerfile.eventbazaar"
+REPO_ROOT="$(cd "${BASE_DIR}/.." && pwd)"
+EB_DOCKERFILE="${REPO_ROOT}/cmd/enterprise/Dockerfile.eventbazaar"
 
 # Regular Colors
 Black='\033[0;30m'        # Black
@@ -514,8 +515,8 @@ if [[ "$EVENTBAZAAR_MODE" == "true" ]]; then
         *)  echo "🔴 Unsupported architecture: $BUILD_ARCH"; exit 1 ;;
     esac
 
-    COMMIT_SHA="$(git -C "${BASE_DIR}/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    BRANCH_NAME="$(git -C "${BASE_DIR}/.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    BRANCH_NAME="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 
     $sudo_cmd docker build \
         -t "$EB_CUSTOM_IMAGE" \
@@ -525,7 +526,7 @@ if [[ "$EVENTBAZAAR_MODE" == "true" ]]; then
         --build-arg COMMIT_SHA="$COMMIT_SHA" \
         --build-arg TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --build-arg BRANCH_NAME="$BRANCH_NAME" \
-        "${BASE_DIR}/../.."
+        "$REPO_ROOT"
 
     echo -e "\n✅ Custom image built: $EB_CUSTOM_IMAGE\n"
 
