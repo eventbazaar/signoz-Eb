@@ -32,11 +32,12 @@
 
 ## Prerequisites
 
-- Docker Engine ≥ 24 with the Compose plugin (`docker compose`)
+- Docker Engine ≥ 24 with the Compose plugin (`docker compose` v2)
 - Two DNS A records pointing to the server's public IP:
   - `otel-ui.eventbazaar.com`
   - `otel-push.eventbazaar.com`
 - Ports 80 and 443 open in the server firewall
+- In `deploy/docker`: committed **`.env.eventbazaar`** (defaults) and gitignored **`.env.eventbazaar.local`** (secrets and overrides). The `signoz` service loads both via `env_file` so secrets reach the container, not only Compose interpolation.
 
 ---
 
@@ -51,12 +52,42 @@ cd signoz-Eb/deploy/docker
 
 ```bash
 cp .env.eventbazaar .env.eventbazaar.local
-# Generate a strong JWT secret and set it:
+# Generate a strong JWT secret and set SIGNOZ_JWT_SECRET (used by Compose as ${SIGNOZ_JWT_SECRET} → container):
 JWT=$(openssl rand -hex 32)
 sed -i "s/CHANGE_ME_BEFORE_FIRST_RUN/$JWT/" .env.eventbazaar.local
 ```
 
 > `.env.eventbazaar.local` is gitignored — never commit it.
+
+### Compose `--env-file` vs service `env_file`
+
+- **`docker compose --env-file .env.eventbazaar.local`** only supplies variables for **substitution** in `docker-compose.eventbazaar.yaml` (for example `${SIGNOZ_JWT_SECRET}`).
+- Variables that SigNoz reads at runtime (for example **`SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD`**) must appear in a file listed under the **`signoz` service `env_file`** in the compose file. This stack loads **`.env.eventbazaar`** then **`.env.eventbazaar.local`** (same directory as the compose file); the second file overrides the first for duplicate keys. **`.env.eventbazaar.local` must exist** before `up` (create it with `cp .env.eventbazaar .env.eventbazaar.local` in Step 2).
+
+### Alertmanager email (Gmail / Google Workspace)
+
+Global SMTP is configured in **`signoz-config.yaml`** under `alertmanager.signoz.global` (`smtp.gmail.com:587`, `smtp_from`, `smtp_auth_username`, and an empty `smtp_auth_password` in YAML — password must not live in git).
+
+Add the Gmail **app password** to **`.env.eventbazaar.local`** using the **exact** SigNoz variable name (double underscores are required):
+
+```bash
+# Append or edit in .env.eventbazaar.local.
+# Use DOUBLE quotes for values that contain spaces (single quotes are often parsed wrong by Docker env_file):
+SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD="your 16 char app password"
+# Or use the app password without spaces (no quotes needed):
+# SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD=vocgfguwufbarxab
+```
+
+After editing, **recreate** the SigNoz container so env is re-read:  
+`docker compose -f docker-compose.eventbazaar.yaml --env-file .env.eventbazaar.local up -d --force-recreate signoz`
+
+Do **not** rely on a generic name such as `GMAIL_SMTP_APP_PASSWORD` unless you map it yourself; the SigNoz process only merges keys that match the `SIGNOZ_…` hierarchy above.
+
+After the stack is up, you can confirm the variable is present inside the container (do not paste the value into tickets or chat):
+
+```bash
+docker exec signoz-eb sh -c 'test -n "$SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD" && echo password_is_set || echo password_missing'
+```
 
 ## Step 3 — Obtain TLS certificates
 
@@ -120,9 +151,14 @@ curl -X POST https://otel-push.eventbazaar.com/v1/traces \
 # Container resource usage
 docker stats --no-stream
 
-# Logs (all services)
-docker compose -f docker-compose.eventbazaar.yaml logs --tail=50
+# Logs (all services) — always pass the same --env-file as for `up`
+docker compose \
+  -f docker-compose.eventbazaar.yaml \
+  --env-file .env.eventbazaar.local \
+  logs --tail=50
 ```
+
+If you configured Alertmanager SMTP in Step 2, use **Settings → Notification channels → Email → Test** in the UI after `password_is_set` succeeds from the check above.
 
 ---
 
@@ -184,4 +220,15 @@ docker run --rm \
 
 # ClickHouse data (for full telemetry backup)
 docker exec signoz-eb-clickhouse clickhouse-backup create signoz-$(date +%F)
+```
+
+---
+
+## Stopping the stack
+
+```bash
+docker compose \
+  -f docker-compose.eventbazaar.yaml \
+  --env-file .env.eventbazaar.local \
+  down
 ```

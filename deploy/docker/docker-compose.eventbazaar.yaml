@@ -157,12 +157,11 @@ services:
     volumes:
       - sqlite:/var/lib/signoz/
       - ./signoz-config.yaml:/etc/signoz/signoz.yaml
-    # Loads keys into the container without Compose ${...} interpolation (so you do not need --env-file for SMTP).
-    # Set SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD in .env.eventbazaar or .env.secrets (see comments there).
+    # Loads keys into the container (not the same as `docker compose --env-file`, which only affects Compose interpolation).
+    # Use short-form paths only (works on all Compose v2); `.env.eventbazaar.local` must exist (run `cp .env.eventbazaar .env.eventbazaar.local` first).
     env_file:
       - .env.eventbazaar
-      - path: .env.secrets
-        required: false
+      - .env.eventbazaar.local
     environment:
       - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://clickhouse:9000
