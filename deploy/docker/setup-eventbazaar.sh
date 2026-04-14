@@ -248,11 +248,43 @@ chmod +x "$RENEW_SCRIPT"
 success "Weekly renewal cron installed at $RENEW_SCRIPT"
 
 # =============================================================================
-section "9 · Pull Docker images"
+section "9 · Build custom SigNoz image"
 # =============================================================================
 
-info "Pulling images (this may take a few minutes)…"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
+CUSTOM_IMAGE="signoz-eb-custom:latest"
+DOCKERFILE="$INSTALL_DIR/cmd/enterprise/Dockerfile.eventbazaar"
+
+info "Building custom SigNoz image (includes Google Chat notifier, etc.)…"
+info "This compiles Go backend + frontend inside Docker — may take 5-10 minutes on first run."
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64)  TARGETARCH="amd64" ;;
+    aarch64|arm64) TARGETARCH="arm64" ;;
+    *) die "Unsupported architecture: $ARCH" ;;
+esac
+
+COMMIT_SHA="$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BRANCH_NAME="$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+
+docker build \
+    -t "$CUSTOM_IMAGE" \
+    -f "$DOCKERFILE" \
+    --build-arg TARGETARCH="$TARGETARCH" \
+    --build-arg VERSION="${BRANCH_NAME}-${COMMIT_SHA}" \
+    --build-arg COMMIT_SHA="$COMMIT_SHA" \
+    --build-arg TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    --build-arg BRANCH_NAME="$BRANCH_NAME" \
+    "$INSTALL_DIR"
+
+success "Custom image built: $CUSTOM_IMAGE"
+
+# =============================================================================
+section "9a · Pull remaining Docker images"
+# =============================================================================
+
+info "Pulling third-party images (ClickHouse, OTel Collector, etc.)…"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull --ignore-buildable
 success "Images pulled"
 
 # =============================================================================

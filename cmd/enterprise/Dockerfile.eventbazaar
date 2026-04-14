@@ -31,7 +31,7 @@ RUN GOARCH=${TARGETARCH} GOOS=linux go build \
       -X github.com/SigNoz/signoz/pkg/version.variant=enterprise"
 
 # ── Stage 2: Build frontend ─────────────────────────────────
-FROM node:20-alpine AS js-builder
+FROM node:22-alpine AS js-builder
 
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/yarn.lock ./
