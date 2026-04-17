@@ -4,10 +4,7 @@ import (
 	"github.com/SigNoz/signoz/pkg/errors"
 )
 
-var (
-	ErrCodeInvalidCloudRegion    = errors.MustNewCode("invalid_cloud_region")
-	ErrCodeMismatchCloudProvider = errors.MustNewCode("cloud_provider_mismatch")
-)
+var ErrCodeInvalidCloudRegion = errors.MustNewCode("invalid_cloud_region")
 
 // List of all valid cloud regions on Amazon Web Services.
 var ValidAWSRegions = map[string]struct{}{
@@ -100,4 +97,12 @@ var ValidAzureRegions = map[string]struct{}{
 	"westus":             {}, // West US
 	"westus2":            {}, // West US 2
 	"westus3":            {}, // West US 3
+}
+
+func validateAWSRegion(region string) error {
+	_, ok := ValidAWSRegions[region]
+	if !ok {
+		return errors.NewInvalidInputf(ErrCodeInvalidCloudRegion, "invalid AWS region: %s", region)
+	}
+	return nil
 }
