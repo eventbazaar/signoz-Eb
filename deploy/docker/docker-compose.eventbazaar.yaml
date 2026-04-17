@@ -186,6 +186,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 120s
 
   otel-collector:
     !!merge <<: *db-depend
@@ -252,3 +253,4 @@ volumes:
     name: signoz-eb-zookeeper-1
   nginx-certs:
     name: signoz-eb-nginx-certs
+    external: true
