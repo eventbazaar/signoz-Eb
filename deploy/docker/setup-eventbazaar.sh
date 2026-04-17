@@ -284,7 +284,9 @@ section "9a · Pull remaining Docker images"
 # =============================================================================
 
 info "Pulling third-party images (ClickHouse, OTel Collector, etc.)…"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull --ignore-pull-failures || true
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull \
+    init-clickhouse zookeeper-1 clickhouse \
+    signoz-telemetrystore-migrator otel-collector nginx
 success "Images pulled"
 
 # =============================================================================
@@ -299,16 +301,16 @@ success "Stack started"
 section "11 · Health check"
 # =============================================================================
 
-info "Waiting for SigNoz to become healthy (up to 3 minutes)…"
-for i in $(seq 1 36); do
-    HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/api/v1/health" 2>/dev/null || true)
-    if [[ "$HTTP" == "200" ]]; then
+info "Waiting for SigNoz to become healthy (up to 5 minutes)…"
+MAX_TRIES=60
+for i in $(seq 1 $MAX_TRIES); do
+    if docker exec signoz-eb wget -q -O /dev/null http://localhost:8080/api/v1/health 2>/dev/null; then
         success "SigNoz is healthy (internal check passed)"
         break
     fi
-    if [[ $i -eq 36 ]]; then
-        warn "SigNoz did not report healthy within 3 minutes."
-        warn "Run: docker compose -f ${COMPOSE_FILE} logs --tail=50"
+    if [[ $i -eq $MAX_TRIES ]]; then
+        warn "SigNoz did not report healthy within 5 minutes."
+        warn "Run: docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs --tail=100"
     fi
     echo -n "."
     sleep 5

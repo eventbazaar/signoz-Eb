@@ -40,8 +40,9 @@ frontend/src/constants/env.ts
 **/__debug_bin
 
 .env
-# Local secrets for deploy/docker (e.g. GMAIL_SMTP_APP_PASSWORD); pass with: docker compose --env-file .env.secrets ...
+# Local secrets for deploy/docker; loaded by signoz env_file and/or compose --env-file
 deploy/docker/.env.secrets
+deploy/docker/.env.eventbazaar.local
 pkg/query-service/signoz.db
 
 pkg/query-service/tests/test-deploy/data/

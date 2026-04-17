@@ -48,7 +48,7 @@ LABEL maintainer="eventbazaar"
 WORKDIR /root
 
 RUN apk update && \
-    apk add ca-certificates && \
+    apk add ca-certificates wget && \
     rm -rf /var/cache/apk/*
 
 COPY --from=go-builder /out/signoz /root/signoz
