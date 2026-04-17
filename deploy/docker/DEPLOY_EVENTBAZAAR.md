@@ -165,10 +165,10 @@ If you configured Alertmanager SMTP in Step 2, use **Settings → Notification c
 SigNoz team invites and password-reset emails do **not** use `alertmanager.signoz.global.smtp_*`. They use the SigNoz `emailing` SMTP config. In this stack, `docker-compose.eventbazaar.yaml` maps:
 
 - `SIGNOZ_EMAILING_ENABLED=true`
-- `SIGNOZ_EMAILING_ADDRESS=smtp.gmail.com:587`
-- `SIGNOZ_EMAILING_FROM=dev@eventbazaar.com`
-- `SIGNOZ_EMAILING_AUTH_USERNAME=dev@eventbazaar.com`
-- `SIGNOZ_EMAILING_AUTH_PASSWORD=${SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD}`
+- `SIGNOZ_EMAILING_SMTP_ADDRESS=smtp.gmail.com:587`
+- `SIGNOZ_EMAILING_SMTP_FROM=dev@eventbazaar.com`
+- `SIGNOZ_EMAILING_SMTP_AUTH_USERNAME=dev@eventbazaar.com`
+- `SIGNOZ_EMAILING_SMTP_AUTH_PASSWORD=${SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD}`
 
 So setting `SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD` in `.env.eventbazaar.local` enables both Alertmanager email channels and user invite emails.
 
