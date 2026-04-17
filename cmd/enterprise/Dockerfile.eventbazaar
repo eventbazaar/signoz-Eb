@@ -1,0 +1,60 @@
+# Multi-stage build: compiles Go backend + frontend, then creates the final image.
+# Usage:
+#   docker build -t signoz-eb-custom:latest -f cmd/enterprise/Dockerfile.eventbazaar .
+
+# ── Stage 1: Build Go binary ────────────────────────────────
+FROM golang:1.25-alpine AS go-builder
+
+RUN apk add --no-cache git make gcc musl-dev
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG TARGETARCH=arm64
+ARG VERSION=custom
+ARG COMMIT_SHA=unknown
+ARG TIMESTAMP=unknown
+ARG BRANCH_NAME=custom
+
+RUN GOARCH=${TARGETARCH} GOOS=linux go build \
+    -C cmd/enterprise \
+    -tags timetzdata \
+    -o /out/signoz \
+    -ldflags "-s -w \
+      -X github.com/SigNoz/signoz/pkg/version.version=${VERSION} \
+      -X github.com/SigNoz/signoz/pkg/version.hash=${COMMIT_SHA} \
+      -X github.com/SigNoz/signoz/pkg/version.time=${TIMESTAMP} \
+      -X github.com/SigNoz/signoz/pkg/version.branch=${BRANCH_NAME} \
+      -X github.com/SigNoz/signoz/pkg/version.variant=enterprise"
+
+# ── Stage 2: Build frontend ─────────────────────────────────
+FROM node:22-alpine AS js-builder
+
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/yarn.lock ./
+RUN yarn install --frozen-lockfile --ignore-scripts
+
+COPY frontend/ .
+RUN CI=1 node ./i18-generate-hash.cjs && \
+    node scripts/update-registry.cjs && \
+    yarn build
+
+# ── Stage 3: Final image ────────────────────────────────────
+FROM alpine:3.20.3
+LABEL maintainer="eventbazaar"
+WORKDIR /root
+
+RUN apk update && \
+    apk add ca-certificates && \
+    rm -rf /var/cache/apk/*
+
+COPY --from=go-builder /out/signoz /root/signoz
+COPY templates/email /root/templates
+COPY --from=js-builder /src/frontend/build/ /etc/signoz/web/
+
+RUN chmod 755 /root /root/signoz
+
+ENTRYPOINT ["./signoz", "server"]

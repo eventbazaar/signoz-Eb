@@ -7,6 +7,14 @@ BASE_DIR="$(dirname "$(readlink -f "$0")")"
 DOCKER_STANDALONE_DIR="docker"
 DOCKER_SWARM_DIR="docker-swarm" # TODO: Add docker swarm support
 
+# EventBazaar custom deployment
+EVENTBAZAAR_MODE="${EVENTBAZAAR:-false}"
+EB_COMPOSE_FILE="docker-compose.eventbazaar.yaml"
+EB_ENV_FILE=".env.eventbazaar.local"
+EB_CUSTOM_IMAGE="signoz-eb-custom:latest"
+REPO_ROOT="$(cd "${BASE_DIR}/.." && pwd)"
+EB_DOCKERFILE="${REPO_ROOT}/cmd/enterprise/Dockerfile.eventbazaar"
+
 # Regular Colors
 Black='\033[0;30m'        # Black
 Red='\[\e[0;31m\]'        # Red
@@ -491,73 +499,164 @@ if is_command_present docker-compose; then
     fi
 fi
 
-echo ""
-echo -e "\n🟡 Pulling the latest container images for SigNoz.\n"
-$sudo_cmd $docker_compose_cmd pull
-
-echo ""
-echo "🟡 Starting the SigNoz containers. It may take a few minutes ..."
-echo
-# The $docker_compose_cmd command does some nasty stuff for the `--detach` functionality. So we add a `|| true` so that the
-# script doesn't exit because this command looks like it failed to do it's thing.
-$sudo_cmd $docker_compose_cmd up --detach --remove-orphans || true
-
-wait_for_containers_start 60
-echo ""
-
-if [[ $status_code -ne 200 ]]; then
-    echo "+++++++++++ ERROR ++++++++++++++++++++++"
-    echo "🔴 The containers didn't seem to start correctly. Please run the following command to check containers that may have errored out:"
+# ── EventBazaar custom build ──────────────────────────────────────────────────
+if [[ "$EVENTBAZAAR_MODE" == "true" ]]; then
+    echo ""
+    echo -e "🔨 EventBazaar mode: building custom SigNoz image from source...\n"
+    echo "   This includes the Google Chat notifier and other customizations."
+    echo "   First build may take 5-10 minutes (subsequent builds use Docker cache)."
     echo ""
 
-    echo "cd ${DOCKER_STANDALONE_DIR}"
-    echo "$sudo_cmd $docker_compose_cmd ps -a"
+    # Detect architecture for the build
+    BUILD_ARCH="$(uname -m)"
+    case "$BUILD_ARCH" in
+        x86_64)         TARGETARCH="amd64" ;;
+        aarch64|arm64)  TARGETARCH="arm64" ;;
+        *)  echo "🔴 Unsupported architecture: $BUILD_ARCH"; exit 1 ;;
+    esac
+
+    COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    BRANCH_NAME="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+
+    $sudo_cmd docker build \
+        -t "$EB_CUSTOM_IMAGE" \
+        -f "$EB_DOCKERFILE" \
+        --build-arg TARGETARCH="$TARGETARCH" \
+        --build-arg VERSION="${BRANCH_NAME}-${COMMIT_SHA}" \
+        --build-arg COMMIT_SHA="$COMMIT_SHA" \
+        --build-arg TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        --build-arg BRANCH_NAME="$BRANCH_NAME" \
+        "$REPO_ROOT"
+
+    echo -e "\n✅ Custom image built: $EB_CUSTOM_IMAGE\n"
+
+    # Prepare env file if missing
+    if [[ ! -f "$EB_ENV_FILE" ]]; then
+        if [[ -f ".env.eventbazaar" ]]; then
+            echo "🟡 Creating $EB_ENV_FILE from template..."
+            cp .env.eventbazaar "$EB_ENV_FILE"
+            if command -v openssl &>/dev/null; then
+                JWT_SECRET=$(openssl rand -hex 32)
+                if grep -q "CHANGE_ME_BEFORE_FIRST_RUN" "$EB_ENV_FILE" 2>/dev/null; then
+                    sed -i.bak "s/CHANGE_ME_BEFORE_FIRST_RUN/${JWT_SECRET}/" "$EB_ENV_FILE" && rm -f "${EB_ENV_FILE}.bak"
+                    echo "   JWT secret auto-generated."
+                fi
+            fi
+            echo -e "   ⚠️  Edit $EB_ENV_FILE to add secrets (SMTP password, etc.) before proceeding.\n"
+        fi
+    fi
+
+    echo -e "🟡 Pulling third-party images...\n"
+    $sudo_cmd $docker_compose_cmd -f "$EB_COMPOSE_FILE" --env-file "$EB_ENV_FILE" pull --ignore-pull-failures || true
+
+    echo ""
+    echo "🟡 Starting the SigNoz EventBazaar stack..."
+    echo
+    $sudo_cmd $docker_compose_cmd -f "$EB_COMPOSE_FILE" --env-file "$EB_ENV_FILE" up --detach --remove-orphans || true
+
+    wait_for_containers_start 60
     echo ""
 
-    echo "Try bringing down the containers and retrying the installation"
-    echo "cd ${DOCKER_STANDALONE_DIR}"
-    echo "$sudo_cmd $docker_compose_cmd down -v"
-    echo ""
+    if [[ $status_code -ne 200 ]]; then
+        echo "+++++++++++ ERROR ++++++++++++++++++++++"
+        echo "🔴 The containers didn't seem to start correctly. Please run the following command to check containers that may have errored out:"
+        echo ""
+        echo "cd ${DOCKER_STANDALONE_DIR}"
+        echo "$sudo_cmd $docker_compose_cmd -f $EB_COMPOSE_FILE ps -a"
+        echo ""
+        echo "Try bringing down the containers and retrying the installation"
+        echo "$sudo_cmd $docker_compose_cmd -f $EB_COMPOSE_FILE --env-file $EB_ENV_FILE down -v"
+        echo "++++++++++++++++++++++++++++++++++++++++"
 
-    echo "Please read our troubleshooting guide https://signoz.io/docs/install/troubleshooting/"
-    echo "or reach us on SigNoz for support https://signoz.io/slack"
-    echo "++++++++++++++++++++++++++++++++++++++++"
+        send_event "installation_error_checks"
+        exit 1
+    else
+        send_event "installation_success"
+        echo "++++++++++++++++++ SUCCESS ++++++++++++++++++++++"
+        echo ""
+        echo "🟢 EventBazaar SigNoz is running!"
+        echo ""
+        echo "   Custom image: $EB_CUSTOM_IMAGE (commit: $COMMIT_SHA)"
+        echo ""
+        echo "ℹ️  To bring down SigNoz:"
+        echo "   cd ${DOCKER_STANDALONE_DIR}"
+        echo "   $sudo_cmd $docker_compose_cmd -f $EB_COMPOSE_FILE --env-file $EB_ENV_FILE down"
+        echo ""
+        echo "ℹ️  To rebuild after code changes:"
+        echo "   EVENTBAZAAR=true bash ../install.sh"
+        echo "+++++++++++++++++++++++++++++++++++++++++++++++++"
+    fi
 
-    send_event "installation_error_checks"
-    exit 1
-
+# ── Standard SigNoz install ──────────────────────────────────────────────────
 else
-    send_event "installation_success"
-
-    echo "++++++++++++++++++ SUCCESS ++++++++++++++++++++++"
     echo ""
-    echo "🟢 Your installation is complete!"
-    echo ""
-    echo -e "🟢 SigNoz is running on http://localhost:8080"
-    echo ""
-    echo "ℹ️  By default, retention period is set to 15 days for logs and traces, and 30 days for metrics."
-    echo -e "To change this, navigate to the General tab on the Settings page of SigNoz UI. For more details, refer to https://signoz.io/docs/userguide/retention-period \n"
-
-    echo "ℹ️  To bring down SigNoz and clean volumes:"
-    echo ""
-    echo "cd ${DOCKER_STANDALONE_DIR}"
-    echo "$sudo_cmd $docker_compose_cmd down -v"
+    echo -e "\n🟡 Pulling the latest container images for SigNoz.\n"
+    $sudo_cmd $docker_compose_cmd pull
 
     echo ""
-    echo "+++++++++++++++++++++++++++++++++++++++++++++++++"
-    echo ""
-    echo "👉 Need help in Getting Started?"
-    echo -e "Join us on Slack https://signoz.io/slack"
-    echo ""
-    echo -e "\n📨 Please share your email to receive support & updates about SigNoz!"
-    read -rp 'Email: ' email
+    echo "🟡 Starting the SigNoz containers. It may take a few minutes ..."
+    echo
+    # The $docker_compose_cmd command does some nasty stuff for the `--detach` functionality. So we add a `|| true` so that the
+    # script doesn't exit because this command looks like it failed to do it's thing.
+    $sudo_cmd $docker_compose_cmd up --detach --remove-orphans || true
 
-    while [[ $email == "" ]]
-    do
+    wait_for_containers_start 60
+    echo ""
+
+    if [[ $status_code -ne 200 ]]; then
+        echo "+++++++++++ ERROR ++++++++++++++++++++++"
+        echo "🔴 The containers didn't seem to start correctly. Please run the following command to check containers that may have errored out:"
+        echo ""
+
+        echo "cd ${DOCKER_STANDALONE_DIR}"
+        echo "$sudo_cmd $docker_compose_cmd ps -a"
+        echo ""
+
+        echo "Try bringing down the containers and retrying the installation"
+        echo "cd ${DOCKER_STANDALONE_DIR}"
+        echo "$sudo_cmd $docker_compose_cmd down -v"
+        echo ""
+
+        echo "Please read our troubleshooting guide https://signoz.io/docs/install/troubleshooting/"
+        echo "or reach us on SigNoz for support https://signoz.io/slack"
+        echo "++++++++++++++++++++++++++++++++++++++++"
+
+        send_event "installation_error_checks"
+        exit 1
+
+    else
+        send_event "installation_success"
+
+        echo "++++++++++++++++++ SUCCESS ++++++++++++++++++++++"
+        echo ""
+        echo "🟢 Your installation is complete!"
+        echo ""
+        echo -e "🟢 SigNoz is running on http://localhost:8080"
+        echo ""
+        echo "ℹ️  By default, retention period is set to 15 days for logs and traces, and 30 days for metrics."
+        echo -e "To change this, navigate to the General tab on the Settings page of SigNoz UI. For more details, refer to https://signoz.io/docs/userguide/retention-period \n"
+
+        echo "ℹ️  To bring down SigNoz and clean volumes:"
+        echo ""
+        echo "cd ${DOCKER_STANDALONE_DIR}"
+        echo "$sudo_cmd $docker_compose_cmd down -v"
+
+        echo ""
+        echo "+++++++++++++++++++++++++++++++++++++++++++++++++"
+        echo ""
+        echo "👉 Need help in Getting Started?"
+        echo -e "Join us on Slack https://signoz.io/slack"
+        echo ""
+        echo -e "\n📨 Please share your email to receive support & updates about SigNoz!"
         read -rp 'Email: ' email
-    done
 
-    send_event "identify_successful_installation"
+        while [[ $email == "" ]]
+        do
+            read -rp 'Email: ' email
+        done
+
+        send_event "identify_successful_installation"
+    fi
 fi
 
 echo -e "\n🙏 Thank you!\n"

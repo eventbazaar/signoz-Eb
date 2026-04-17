@@ -73,6 +73,14 @@ alertmanager:
     external_url: https://otel-ui.eventbazaar.com
     global:
       resolve_timeout: 5m
+      # Email notification channels use Alertmanager global SMTP (defaults to localhost:25 otherwise).
+      # Gmail / Google Workspace: smtp.gmail.com:587, same address for username and smtp_from, App Password in password (do not commit).
+      smtp_smarthost: "smtp.gmail.com:587"
+      smtp_from: "dev@eventbazaar.com"
+      smtp_hello: "otel-ui.eventbazaar.com"
+      smtp_require_tls: true
+      smtp_auth_username: "dev@eventbazaar.com"
+      smtp_auth_password: ""
     route:
       group_by:
         - alertname
@@ -93,7 +101,7 @@ alertmanager:
 ##################### Analytics #####################
 # Disabled for self-hosted production deployment
 analytics:
-  enabled: false
+  enabled: true
 
 ##################### StatsReporter #####################
 statsreporter:

@@ -1,5 +1,3 @@
-version: "3.8"
-
 # EventBazaar Production Deployment
 # Specs: 4 vCPU / 16 GB RAM / 200 GB NVMe
 # UI:   https://otel-ui.eventbazaar.com
@@ -7,7 +5,7 @@ version: "3.8"
 
 x-common: &common
   networks:
-    - signoz-net
+    signoz-eb-net: {}
   restart: unless-stopped
   logging:
     options:
@@ -140,7 +138,7 @@ services:
 
   signoz:
     !!merge <<: *db-depend
-    image: signoz/signoz:${VERSION:-v0.118.0}
+    image: signoz-eb-custom:latest
     container_name: signoz-eb
     mem_limit: 2g
     cpus: "1.0"
@@ -149,15 +147,33 @@ services:
         condition: service_healthy
       signoz-telemetrystore-migrator:
         condition: service_completed_successfully
+    # otel-collector-opamp-config.yaml hardcodes ws://signoz:4320/v1/opamp.
+    # The alias lets Docker DNS resolve "signoz" to this container.
+    networks:
+      signoz-eb-net:
+        aliases:
+          - signoz
     # Port 8080 is NOT exposed externally — nginx proxies all traffic
     volumes:
       - sqlite:/var/lib/signoz/
       - ./signoz-config.yaml:/etc/signoz/signoz.yaml
+    # Loads keys into the container (not the same as `docker compose --env-file`, which only affects Compose interpolation).
+    # Use short-form paths only (works on all Compose v2); `.env.eventbazaar.local` must exist (run `cp .env.eventbazaar .env.eventbazaar.local` first).
+    env_file:
+      - .env.eventbazaar
+      - .env.eventbazaar.local
     environment:
       - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://clickhouse:9000
       - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
       - SIGNOZ_TOKENIZER_JWT_SECRET=${SIGNOZ_JWT_SECRET}
+      # Team invite and password-reset emails use the `emailing` SMTP config (separate from Alertmanager email channels).
+      - SIGNOZ_EMAILING_ENABLED=true
+      - SIGNOZ_EMAILING_ADDRESS=smtp.gmail.com:587
+      - SIGNOZ_EMAILING_FROM=dev@eventbazaar.com
+      - SIGNOZ_EMAILING_AUTH_USERNAME=dev@eventbazaar.com
+      # Reuse the same SMTP app password source as Alertmanager.
+      - SIGNOZ_EMAILING_AUTH_PASSWORD=${SIGNOZ_ALERTMANAGER_SIGNOZ_GLOBAL_SMTP__AUTH__PASSWORD}
     command:
       - --config=/etc/signoz/signoz.yaml
     healthcheck:
@@ -177,6 +193,14 @@ services:
     container_name: signoz-eb-otel-collector
     mem_limit: 1g
     cpus: "0.5"
+    # Must wait for signoz to be healthy — otel-collector connects to signoz
+    # on port 4320 (OpAMP) immediately at startup. If signoz is not yet ready,
+    # OpAMP errors cause the health check extension to report unhealthy.
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      signoz:
+        condition: service_healthy
     entrypoint:
       - /bin/sh
     command:
@@ -195,16 +219,6 @@ services:
       - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION=true
       - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
     # Ports 4317/4318 are NOT exposed externally — nginx proxies all traffic
-    healthcheck:
-      test:
-        - CMD
-        - wget
-        - --spider
-        - -q
-        - localhost:13133/
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   nginx:
     !!merge <<: *common
@@ -216,7 +230,7 @@ services:
       signoz:
         condition: service_healthy
       otel-collector:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
@@ -226,7 +240,7 @@ services:
     restart: unless-stopped
 
 networks:
-  signoz-net:
+  signoz-eb-net:
     name: signoz-eb-net
 
 volumes:

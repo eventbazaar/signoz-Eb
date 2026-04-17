@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/email"
+	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/googlechat"
 	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/msteamsv2"
 	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/opsgenie"
 	"github.com/SigNoz/signoz/pkg/alertmanager/alertmanagernotify/pagerduty"
@@ -32,6 +33,13 @@ func NewReceiverIntegrations(nc alertmanagertypes.Receiver, tmpl *template.Templ
 		return nil, err
 	}
 
+	googleChatIndexes := make(map[int]bool)
+	for i, c := range nc.WebhookConfigs {
+		if googlechat.IsGoogleChatURL(string(c.URL)) {
+			googleChatIndexes[i] = true
+		}
+	}
+
 	var (
 		errs         types.MultiError
 		integrations []notify.Integration
@@ -50,6 +58,7 @@ func NewReceiverIntegrations(nc alertmanagertypes.Receiver, tmpl *template.Templ
 		if !slices.Contains(customNotifierIntegrations, integration.Name()) {
 			integrations = append(integrations, integration)
 		}
+		integrations = append(integrations, integration)
 	}
 
 	for i, c := range nc.WebhookConfigs {
@@ -71,6 +80,14 @@ func NewReceiverIntegrations(nc alertmanagertypes.Receiver, tmpl *template.Templ
 		add(msteamsv2.Integration, i, c, func(l *slog.Logger) (notify.Notifier, error) {
 			return msteamsv2.New(c, tmpl, `{{ template "msteamsv2.default.titleLink" . }}`, l)
 		})
+	}
+
+	for i, c := range nc.WebhookConfigs {
+		if googleChatIndexes[i] {
+			add("googlechat", i, c, func(l *slog.Logger) (notify.Notifier, error) {
+				return googlechat.New(c, tmpl, l)
+			})
+		}
 	}
 
 	if errs.Len() > 0 {
