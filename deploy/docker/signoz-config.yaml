@@ -128,6 +128,14 @@ user:
       max_token_lifetime: 6h
     invite:
       max_token_lifetime: 48h
+  root:
+    enabled: false
+    email: ""
+    password: ""
+    org:
+      name: default
+      id: 00000000-0000-0000-0000-000000000000
+
 ##################### Instrumentation #####################
 instrumentation:
   logs:
